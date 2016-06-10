@@ -274,7 +274,8 @@ int sj(const char * j, int tl, char * a)
   int ti=0;
   int ai=0;
   while (ti<tl) {
-    if (j[ti] == '\\') {
+    char c = j[ti];
+    if (c == '\\') {
       // XXX TODO TODO TODO TODO TODO
       switch(j[ti+1]) {
       case '\"':
@@ -287,12 +288,20 @@ int sj(const char * j, int tl, char * a)
         ti += 2;
         break;
 
+      case 'r':
+        a[ai++] = '\r';
+        ti += 2;
+        break;
+
       case 'n':
         a[ai++] = '\n';
         ti += 2;
         break;
 
       case 't':
+        //a[ai++] = '\t';
+        //sprintf(a+ai, ".tab.");
+        //ai += strlen(a+ai);
         a[ai++] = '\t';
         ti += 2;
         break;
@@ -302,6 +311,23 @@ int sj(const char * j, int tl, char * a)
         ti += 2;
         break;
       }
+    } else if (c >= 0xe0) {
+      //sprintf(a+ai, ".%02x.%02x.%02x.", c, j[ti+1], j[ti+2]);
+      //ai += strlen(a+ai);
+      //ti += 3;
+      a[ai++]=j[ti++];
+      a[ai++]=j[ti++];
+      a[ai++]=j[ti++];
+    } else if (c >= 0xc0) {
+      //sprintf(a+ai, ".%02x.%02x.", c, j[ti+1]);
+      //ai += strlen(a+ai);
+      //ti += 2;
+      a[ai++]=j[ti++];
+      a[ai++]=j[ti++];
+    } else if (c >= 128) {
+      sprintf(a+ai, "-%02x-", c);
+      ai += strlen(a+ai);
+      ti += 1;
     } else {
       a[ai++]=j[ti++];
     }
@@ -312,14 +338,19 @@ int sj(const char * j, int tl, char * a)
 
 const char *sqlc_fj_run(sqlc_handle_t fj, const char *batch_json, int ll)
 {
-// XXX MAJOR TODO-s
+// XXX MAJOR TODO(s)
+// handle constraint violation
+// extra json char issue(s)
+// basic optimization(s)
+//
+// DOUBLE-CHECK:
+// deal with json char issues
 // check return values
 // error handling
 // bind args
 // deal with numbers, true/false, null, etc. etc. etc.
 // rowsAffected/insertId
 // opt keep track of result json position
-// deal with json char issues
 // double-check for possible memory overflows
 
   struct fj_s * myfj = HANDLE_TO_VP(fj);
@@ -433,7 +464,8 @@ const char *sqlc_fj_run(sqlc_handle_t fj, const char *batch_json, int ll)
       // XXX FUTURE TBD keep buffer & free at the end
       int te = tokn->end;
       int tl = tokn->end-tokn->start;
-      char * a = malloc(tl+10); // extra padding
+      //char * a = malloc(tl+10); // extra padding
+      char * a = malloc((tl<<3)+10); // extra padding
       int ai = sj(batch_json+tokn->start, tl, a);
       rv = sqlite3_prepare_v2(mydb, a, ai, &s, NULL);
       free(a);
@@ -496,7 +528,8 @@ const char *sqlc_fj_run(sqlc_handle_t fj, const char *batch_json, int ll)
           //sqlite3_bind_text(s, bi, batch_json+tokn->start, tokn->end-tokn->start, SQLITE_TRANSIENT);
           int te = tokn->end;
           int tl = tokn->end-tokn->start;
-          char * a = malloc(tl+10); // extra padding
+          //char * a = malloc(tl+10); // extra padding
+          char * a = malloc((tl<<3)+10); // extra padding
           int ai = sj(batch_json+tokn->start, tl, a);
           sqlite3_bind_text(s, bi, a, ai, SQLITE_TRANSIENT);
           free(a);
@@ -553,12 +586,62 @@ const char *sqlc_fj_run(sqlc_handle_t fj, const char *batch_json, int ll)
                 strcpy(rr+rrlen, ",");
                 rrlen += 1;
               } else {
+                int pi=0;
                 // XXX FUTURE TODO handle BLOB correctly
                 // XXX TODO CONVERT TO PROPER JSON !! !! !!
                 strcpy(rr+rrlen, "\"");
                 rrlen += 1;
-                strcpy(rr+rrlen, pptext);
-                rrlen += pplen;
+                //strcpy(rr+rrlen, pptext);
+                //rrlen += pplen;
+                while (pi < pplen) {
+                  int pc = pptext[pi];
+
+                  if (pc == '\\') {
+                    rr[rrlen++] = '\\';
+                    rr[rrlen++] = '\\';
+                    pi += 1;
+                  } else if (pc == '\"') {
+                    rr[rrlen++] = '\\';
+                    rr[rrlen++] = '\"';
+                    pi += 1;
+                  } else if (pc >= 32 && pc < 127) {
+                    rr[rrlen++] = pptext[pi++];
+                  } else if (pc > 0xe0) {
+                    //sprintf(rr+rrlen, ".%02x.%02x.%02x.", pc, pptext[pi+1], pptext[pi+2]);
+                    //rrlen += strlen(rr+rrlen);
+                    //pi += 3;
+                    rr[rrlen++] = pptext[pi++];
+                    rr[rrlen++] = pptext[pi++];
+                    rr[rrlen++] = pptext[pi++];
+                  } else if (pc >= 0xc0) {
+                    //sprintf(rr+rrlen, ".%02x.%02x.", pc, pptext[pi+1]);
+                    //rrlen += strlen(rr+rrlen);
+                    //pi += 2;
+                    rr[rrlen++] = pptext[pi++];
+                    rr[rrlen++] = pptext[pi++];
+                  } else if (pc >= 128) {
+                    // XXX TBD ???:
+                    sprintf(rr+rrlen, "-%02x-", pc);
+                    rrlen += strlen(rr+rrlen);
+                    pi += 1;
+                  } else if (pc == '\t') {
+                    rr[rrlen++] = '\\';
+                    rr[rrlen++] = 't';
+                    pi += 1;
+                  } else if (pc == '\r') {
+                    rr[rrlen++] = '\\';
+                    rr[rrlen++] = 'r';
+                    pi += 1;
+                  } else if (pc == '\n') {
+                    rr[rrlen++] = '\\';
+                    rr[rrlen++] = 'n';
+                    pi += 1;
+                  } else {
+                    sprintf(rr+rrlen, "?%02x?", pc);
+                    rrlen += strlen(rr+rrlen);
+                    pi += 1;
+                  }
+                }
                 strcpy(rr+rrlen, "\",");
                 rrlen += 2;
               }
