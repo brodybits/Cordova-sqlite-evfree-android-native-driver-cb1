@@ -97,3 +97,9 @@ const char *sqlc_st_column_text_native(sqlc_handle_t st, int col);
 int sqlc_st_finish(sqlc_handle_t st); /* call sqlite3_finalize() */
 
 int sqlc_db_close(sqlc_handle_t db);
+
+sqlc_handle_t sqlc_db_new_fj(sqlc_handle_t db);
+
+const char *sqlc_fj_run(sqlc_handle_t fj, const char *batch_json, int ll);
+
+void sqlc_fj_dispose(sqlc_handle_t fj);

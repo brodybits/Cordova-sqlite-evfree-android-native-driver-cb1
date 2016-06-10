@@ -1,4 +1,8 @@
-# Android sqlite native driver
+# Cordova sqilte evfree Android native driver
+
+Based on: Android sqlite native driver
+
+TBD TBD TBD
 
 Provides a native build of sqlite with a low-level interface for Android libraries.
 
@@ -6,7 +10,7 @@ Based on [SQLiteGlue-core](https://github.com/sqlg/SQLiteGlue-core), which may b
 
 by Christopher J. Brody aka Chris Brody mailto: brodybits@litehelpers.net
 
-License: UNLICENSE (public domain).
+License: GPL or commercial licensing options
 
 ## About
 
@@ -23,6 +27,11 @@ This project is meant to help build a higher-level sqlite interface library, wit
 **WARNING:** The sqlite database and statement handles that are returned by the `SQLiteNative` library functions are raw C pointer values (with `0x100000000` added). If someone uses a sqlite database or statement handle that is not valid, or no longer valid with the `SQLiteNative` library the behavior is undefined (such as a crash). It is *NOT* recommended to use this API directly unless you really understand how this library works internally.
 
 TBD API and some internal details (probably in a blog post)
+
+## Dependencies
+
+- JSMN (MIT license)
+- SQLite (public domain)
 
 ## Major TODOs and limitations
 

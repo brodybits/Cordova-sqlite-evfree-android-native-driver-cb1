@@ -5,5 +5,7 @@
 
 #include "SQLiteNative_JNI.c"
 
+#include "jsmn.c"
+
 #include "sqlc.c"
 
