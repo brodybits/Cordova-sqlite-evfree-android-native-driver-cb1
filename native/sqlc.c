@@ -411,6 +411,7 @@ const char *sqlc_fj_run(sqlc_handle_t fj, const char *batch_json, int ll)
   as = tokn->size;
   ++tokn;
 
+#if 0
   if (tokn->type != JSMN_OBJECT) return "{\"message\": \"missing object 1\"}";
   ++tokn;
 
@@ -444,6 +445,21 @@ const char *sqlc_fj_run(sqlc_handle_t fj, const char *batch_json, int ll)
   if (tokn->type != JSMN_ARRAY) return "{\"message\": \"type error 6\"}";
   // TODO get flatlist length
   ++tokn;
+#endif
+
+#if 1
+  // dbid
+  if (tokn->type != JSMN_PRIMITIVE) return "{\"message\": \"type error 4\"}";
+  ++tokn;
+
+  // flen (batch length)
+  if (tokn->type != JSMN_PRIMITIVE) return "{\"message\": \"type error 4a\"}";
+  nflen = tokn->end-tokn->start;
+  strncpy(nf, batch_json+tokn->start, nflen);
+  nf[nflen] = '\0';
+  flen = atoi(nf);
+  ++tokn;
+#endif
 
   // not needed here:
   // "check" first SQL:
