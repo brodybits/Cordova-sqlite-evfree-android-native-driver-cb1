@@ -6,7 +6,7 @@
 
 #include "sqlite3.h"
 
-#include "jsmn.h"
+//#include "jsmn.h"
 
 #include <stdbool.h>
 
@@ -356,11 +356,13 @@ const char *sqlc_fj_run(sqlc_handle_t fj, const char *batch_json, int ll)
   struct fj_s * myfj = HANDLE_TO_VP(fj);
   sqlite3 *mydb = myfj->mydb;
 
-  jsmn_parser myparser;
-  jsmntok_t *tokn = NULL;
-  int r = -1;
+  //jsmn_parser myparser;
+  //jsmntok_t *tokn = NULL;
+  //int r = -1;
 
-  int as = 0;
+  int cs;
+
+  //int as = 0;
   int flen = 0;
   char nf[22];
   int nflen = 0;
@@ -398,18 +400,18 @@ const char *sqlc_fj_run(sqlc_handle_t fj, const char *batch_json, int ll)
   myfj->cleanup2 = NULL;
 
   //tokn = tokns;
-  myfj->cleanup1 = tokn = malloc(ll*sizeof(jsmntok_t));
+  //myfj->cleanup1 = tokn = malloc(ll*sizeof(jsmntok_t));
 
-  jsmn_init(&myparser);
-  r = jsmn_parse(&myparser, batch_json, strlen(batch_json), tokn, ll);
-  if (r < 0) return "{\"message\": \"jsmn_parse error 1\"}";
+  //jsmn_init(&myparser);
+  //r = jsmn_parse(&myparser, batch_json, strlen(batch_json), tokn, ll);
+  //if (r < 0) return "{\"message\": \"jsmn_parse error 1\"}";
 
   // FUTURE TBD check for tok overflow?
   //if (i >= r) return "{\"message\": \"memory error 1\"}";
 
-  if (tokn->type != JSMN_ARRAY) return "{\"message\": \"missing array 1\"}";
-  as = tokn->size;
-  ++tokn;
+  //if (tokn->type != JSMN_ARRAY) return "{\"message\": \"missing array 1\"}";
+  //as = tokn->size;
+  //++tokn;
 
 #if 0
   if (tokn->type != JSMN_OBJECT) return "{\"message\": \"missing object 1\"}";
@@ -447,90 +449,166 @@ const char *sqlc_fj_run(sqlc_handle_t fj, const char *batch_json, int ll)
   ++tokn;
 #endif
 
+  cs=1;
+
 #if 1
   // dbid
-  if (tokn->type != JSMN_PRIMITIVE) return "{\"message\": \"type error 4\"}";
-  ++tokn;
+  //if (tokn->type != JSMN_PRIMITIVE) return "{\"message\": \"type error 4\"}";
+  //++tokn;
+  nflen=0;
+  while(batch_json[cs+nflen] != ',') ++nflen;
+  cs+=nflen+1;
 
   // flen (batch length)
-  if (tokn->type != JSMN_PRIMITIVE) return "{\"message\": \"type error 4a\"}";
-  nflen = tokn->end-tokn->start;
-  strncpy(nf, batch_json+tokn->start, nflen);
+  //if (tokn->type != JSMN_PRIMITIVE) return "{\"message\": \"type error 4a\"}";
+  //nflen = tokn->end-tokn->start;
+  nflen=0;
+  while(batch_json[cs+nflen] != ',') ++nflen;
+  //strncpy(nf, batch_json+tokn->start, nflen);
+  strncpy(nf, batch_json+cs, nflen);
   nf[nflen] = '\0';
   flen = atoi(nf);
-  ++tokn;
+  //++tokn;
+  cs+=nflen+1;
 #endif
 
+  // XXX TODO CHECK IN COFFEESCRIPT:
   // not needed here:
   // "check" first SQL:
-  if (tokn->type != JSMN_STRING) return "{\"message\": \"type error 7\"}";
+  //if (tokn->type != JSMN_STRING) return "{\"message\": \"type error 7\"}";
+  if (batch_json[cs] != '\"') return "{\"message\": \"type error 7\"}";
 
   myfj->cleanup2 = rr = malloc(arlen = FIRST_ALLOC);
   strcpy(rr, "[");
   rrlen = 1;
 
   for (fi=0; fi<flen; ++fi) {
+    char cc;
+    int ce;
     int tc0 = sqlite3_total_changes(mydb);
 
     //if (tokn->type != JSMN_STRING) return "{\"message\": \"type error (sql)\"}";
     //if (tokn->type != JSMN_STRING && tokn->type != JSMN_PRIMITIVE) return "{\"message\": \"type error (sql)\"}";
-    if (tokn->type != JSMN_STRING) return batch_json+tokn->start;
+    //if (tokn->type != JSMN_STRING) return batch_json+tokn->start;
+    if (batch_json[cs] != '\"') return batch_json+cs;
+    ++cs;
+
+    ce=cs;
+    while ((cc=batch_json[ce]) != '\"') {
+      if (cc == '\\') {
+        ce += 2;
+      } else if (cc >= 0xe0) {
+        ce += 3;
+      } else if (cc >= 0xc0) {
+        ce += 2;
+      } else {
+        ++ce;
+      }
+    }
+/*
+{ // leaky test
+char * a = strdup(batch_json);
+++a[cs];
+--a[ce-1];
+return a;
+}
+*/
+
     //rv = sqlite3_prepare_v2(mydb, batch_json+tokn->start, tokn->end-tokn->start, &s, NULL);
     {
       // XXX FUTURE TBD keep buffer & free at the end
-      int te = tokn->end;
-      int tl = tokn->end-tokn->start;
+      //int te = tokn->end;
+      //int tl = tokn->end-tokn->start;
+      int tl = ce-cs;
       //char * a = malloc(tl+10); // extra padding
       char * a = malloc((tl<<3)+10); // extra padding
-      int ai = sj(batch_json+tokn->start, tl, a);
+      //int ai = sj(batch_json+tokn->start, tl, a);
+      int ai = sj(batch_json+cs, tl, a);
       rv = sqlite3_prepare_v2(mydb, a, ai, &s, NULL);
       free(a);
     }
-    ++tokn;
+    //++tokn;
+    cs=ce+2;
     // TODO check rv
+/*
+{ // leaky test
+char * b = strdup(batch_json);
+b[cs-4]+=3;
+return b;
+}
+*/
 
     // TODO deal with bind count
     //if (tokn->type != JSMN_PRIMITIVE) return "{\"message\": \"xxxx\"}";
     //if (tokn->type != JSMN_PRIMITIVE) return batch_json+tokn->start;
-    if (tokn->type != JSMN_PRIMITIVE) return "{\"message\": \"xxxx\"}";
-    nflen = tokn->end-tokn->start;
-    strncpy(nf, batch_json+tokn->start, nflen);
+    //if (tokn->type != JSMN_PRIMITIVE) return "{\"message\": \"xxxx\"}";
+    if (batch_json[cs] < '0' || batch_json[cs] > '9') return "{\"message\": \"xxxx\"}";
+    //nflen = tokn->end-tokn->start;
+    nflen=0;
+    while(batch_json[cs+nflen] != ',') ++nflen;
+    //strncpy(nf, batch_json+tokn->start, nflen);
+    strncpy(nf, batch_json+cs, nflen);
     nf[nflen] = '\0';
     param_count = atoi(nf);
-    ++tokn;
+    //++tokn;
+    cs+=nflen+1;
+/*
+if (fi != 0)
+{ // leaky test
+char * b = strdup(batch_json);
+b[cs-2]+=3;
+return b;
+}
+//*/
 
     //tokn = tokn + param_count;// XXX TEMP TEST
 
     // XXX TODO OVERFLOW ETC ETC
 
     if (rv != SQLITE_OK) {
+#if 0 // XXX TODO
       tokn = tokn + param_count;
+#endif
     } else {
+//#if 0 // XXX TODO
       for (bi=1; bi<=param_count; ++bi) {
         // XXX TODO deal with BLOB etc etc
         // XXX TBD/TODO check bind result??
-        if (tokn->type == JSMN_PRIMITIVE) {
+        if (batch_json[cs] != '\"') {
           // XXX TODO double-check:
           // XXX TODO TEST ALL:
-          if (batch_json[tokn->start] == 'n') {
+          if (batch_json[cs] == 'n') {
             sqlite3_bind_null(s, bi);
-          } else if (batch_json[tokn->start] == 't') {
+          } else if (batch_json[cs] == 't') {
             sqlite3_bind_int(s, bi, 1);
-          } else if (batch_json[tokn->start] == 'f') {
+          } else if (batch_json[cs] == 'f') {
             sqlite3_bind_int(s, bi, 0);
           } else {
             bool f=false;
-            int iii;
+            //int iii;
 
-            for (iii=tokn->start; iii!=tokn->end; ++iii) {
-              if (batch_json[iii]=='.') {
-                f = true;
-                break;
-              }
+            //for (iii=tokn->start; iii!=tokn->end; ++iii) {
+            //  if (batch_json[iii]=='.') {
+            //    f = true;
+            //    break;
+            //  }
+            //}
+            ce=cs;
+            while (batch_json[ce] != ',') {
+              if (batch_json[ce] == '.') f=true;
+              ++ce;
             }
+/* **
+{ // leaky test
+char * b = strdup(batch_json);
+++b[cs];
+b[ce-1]+=3;
+return b;
+}
+// */
 
-            nflen = tokn->end-tokn->start;
-            strncpy(nf, batch_json+tokn->start, nflen);
+            nflen = ce-cs;
+            strncpy(nf, batch_json+cs, nflen);
             nf[nflen] = '\0';
 
             if (f) {
@@ -538,20 +616,57 @@ const char *sqlc_fj_run(sqlc_handle_t fj, const char *batch_json, int ll)
             } else {
               sqlite3_bind_int64(s, bi, atoll(nf));
             }
+            cs=ce+1;
           }
+          while (batch_json[cs] != ',') ++cs;
+          ++cs;
         } else {
           // XXX FUTURE TBD keep buffer & free at the end
           //sqlite3_bind_text(s, bi, batch_json+tokn->start, tokn->end-tokn->start, SQLITE_TRANSIENT);
-          int te = tokn->end;
-          int tl = tokn->end-tokn->start;
+
+          ce=++cs;
+          while ((cc=batch_json[ce]) != '\"') {
+            if (cc == '\\') {
+              ce += 2;
+            } else if (cc >= 0xe0) {
+              ce += 3;
+            } else if (cc >= 0xc0) {
+              ce += 2;
+            } else {
+              ++ce;
+            }
+          }
+/* **
+{ // leaky test
+char * b = strdup(batch_json);
+++b[cs];
+--b[ce-1];
+return b;
+}
+// */
+          //int te = tokn->end;
+          //int tl = tokn->end-tokn->start;
+          int tl = ce-cs;
           //char * a = malloc(tl+10); // extra padding
+          {
           char * a = malloc((tl<<3)+10); // extra padding
-          int ai = sj(batch_json+tokn->start, tl, a);
+          //int ai = sj(batch_json+tokn->start, tl, a);
+          int ai = sj(batch_json+cs, tl, a);
           sqlite3_bind_text(s, bi, a, ai, SQLITE_TRANSIENT);
           free(a);
+          }
+          cs=ce+2;
+/* **
+{ // leaky test
+char * b = strdup(batch_json);
+b[cs-2]+=3;
+return b;
+}
+// */
         }
-        ++tokn;
+        //++tokn;
       }
+//#endif
 
       rv=sqlite3_step(s);
       if (rv == SQLITE_ROW) {
