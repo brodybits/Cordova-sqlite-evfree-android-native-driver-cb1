@@ -378,7 +378,7 @@ const char *sqlc_fj_run(sqlc_handle_t fj, const char *batch_json, int ll)
   // Desired for normal situations:
   //const FIRST_ALLOC = 1000;
   // XXX TBD NEEDED to pass big memory test:
-  const FIRST_ALLOC = 1000000;
+  const FIRST_ALLOC = 10000;
   const NEXT_ALLOC = 80; // extra extra padding extra extra padding
 
   char * rr;
@@ -390,9 +390,16 @@ const char *sqlc_fj_run(sqlc_handle_t fj, const char *batch_json, int ll)
 // Double alloc every time:
 //#define EXTRA_ALLOC rrlen
 // Extra half alloc every time:
-#define EXTRA_ALLOC (rrlen >> 1)
+//#define EXTRA_ALLOC (rrlen >> 1)
+// Hybrid double/extra half alloc every time (seems best for bulk scenarios):
+#define EXTRA_ALLOC ((rrlen < 1000000) ? rrlen : (rrlen >> 1))
+//#define EXTRA_ALLOC ((rrlen < 1000000) ? 1000000 : (rrlen >> 1))
 // Don't double or extra half alloc every time (for extra alloc memory test):
 //#define EXTRA_ALLOC 11
+
+// EXTRA NOTE: Use of realloc seems to break under some bulk scenarios.
+// WORKAROUND is to do malloc/memcpy/free instead.
+// TBD VERY strange!
 
   free(myfj->cleanup1);
   myfj->cleanup1 = NULL;
@@ -579,8 +586,12 @@ const char *sqlc_fj_run(sqlc_handle_t fj, const char *batch_json, int ll)
             pptext = sqlite3_column_name(s, jj);
             pplen = strlen(pptext);
             if (rrlen + pplen + NEXT_ALLOC > arlen) {
+              char * old = rr;
               arlen += EXTRA_ALLOC + pplen + NEXT_ALLOC;
-              myfj->cleanup2 = rr = realloc(rr, arlen);
+              //myfj->cleanup2 = rr = realloc(rr, arlen);
+              myfj->cleanup2 = rr = malloc(arlen);
+              if (rr != NULL) memcpy(rr, old, rrlen);
+              free(old);
               if (rr == NULL) goto batchmemoryerror1;
             }
             strcpy(rr+rrlen, pptext);
@@ -600,8 +611,12 @@ const char *sqlc_fj_run(sqlc_handle_t fj, const char *batch_json, int ll)
 
               // NOTE: add double pplen for JSON encoding
               if (rrlen + pplen + pplen + NEXT_ALLOC > arlen) {
+                char * old = rr;
                 arlen += EXTRA_ALLOC + pplen + pplen + NEXT_ALLOC;
-                myfj->cleanup2 = rr = realloc(rr, arlen);
+                //myfj->cleanup2 = rr = realloc(rr, arlen);
+                myfj->cleanup2 = rr = malloc(arlen);
+                if (rr != NULL) memcpy(rr, old, rrlen);
+                free(old);
                 if (rr == NULL) goto batchmemoryerror1;
               }
 
@@ -676,9 +691,21 @@ const char *sqlc_fj_run(sqlc_handle_t fj, const char *batch_json, int ll)
         } while (rv == SQLITE_ROW);
         strcpy(rr+rrlen, "\"endrows\",");
         rrlen += 10;
-      } else {
-        // XXX TODO ok vs error !!
+      } else if (rv == SQLITE_OK || rv == SQLITE_DONE) {
         int rowsAffected = sqlite3_total_changes(mydb) - tc0;
+
+        //if (rrlen + 40 + NEXT_ALLOC > arlen)
+        if (rrlen + 200 > arlen) {
+          char * old = rr;
+          //arlen += EXTRA_ALLOC + 40 + NEXT_ALLOC;
+          arlen += EXTRA_ALLOC + 200 + 50;
+          //myfj->cleanup2 = rr = realloc(rr, arlen);
+          myfj->cleanup2 = rr = malloc(arlen);
+          if (rr != NULL) memcpy(rr, old, rrlen);
+          free(old);
+          if (rr == NULL) goto batchmemoryerror1;
+        }
+
         if (rowsAffected > 0) {
           int insertId = sqlite3_last_insert_rowid(mydb);
 
@@ -704,6 +731,17 @@ const char *sqlc_fj_run(sqlc_handle_t fj, const char *batch_json, int ll)
     }
 
     if (rv != SQLITE_OK && rv != SQLITE_DONE) {
+      if (rrlen + 200 > arlen) {
+        char * old = rr;
+        //arlen += EXTRA_ALLOC + 40 + NEXT_ALLOC;
+        arlen += EXTRA_ALLOC + 200 + 50;
+        //myfj->cleanup2 = rr = realloc(rr, arlen);
+        myfj->cleanup2 = rr = malloc(arlen);
+        if (rr != NULL) memcpy(rr, old, rrlen);
+        free(old);
+        if (rr == NULL) goto batchmemoryerror1;
+      }
+
       // XXX TODO REPORT CORRECT ERROR
       strcpy(rr+rrlen, "\"error\",0,1,\"--\",");
       rrlen += 17;
@@ -712,12 +750,15 @@ const char *sqlc_fj_run(sqlc_handle_t fj, const char *batch_json, int ll)
     // FUTURE TODO what to do in case this returns an error
     sqlite3_finalize(s);
 
+#if 0 // NO NEEDED BEFORE ADDING SQL STATEMENT RESULT
     // TODO explain why:
     if (rrlen + 40 + NEXT_ALLOC > arlen) {
-      arlen += EXTRA_ALLOC + 40 + NEXT_ALLOC;
+      //arlen += EXTRA_ALLOC + 40 + NEXT_ALLOC;
+      arlen = arlen + arlen + rrlen + 200;
       myfj->cleanup2 = rr = realloc(rr, arlen);
-      if (rr == NULL) goto batchmemoryerror;
+      if (rr == NULL) goto batchmemoryerror1;
     }
+#endif
   }
 
   strcpy(rr+rrlen, "\"bogus\"]");
