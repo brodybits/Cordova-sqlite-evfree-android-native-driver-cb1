@@ -388,8 +388,10 @@ const char *sqlc_fj_run(sqlc_handle_t fj, const char *batch_json, int ll)
   int pplen = 0;
 
 // Double alloc every time:
-#define EXTRA_ALLOC rrlen
-// Don't double alloc every time (for extra alloc memory test):
+//#define EXTRA_ALLOC rrlen
+// Extra half alloc every time:
+#define EXTRA_ALLOC (rrlen >> 1)
+// Don't double or extra half alloc every time (for extra alloc memory test):
 //#define EXTRA_ALLOC 11
 
   free(myfj->cleanup1);
@@ -399,6 +401,8 @@ const char *sqlc_fj_run(sqlc_handle_t fj, const char *batch_json, int ll)
 
   //tokn = tokns;
   myfj->cleanup1 = tokn = malloc(ll*sizeof(jsmntok_t));
+
+  if (tokn == NULL) goto batchmemoryerror;
 
   jsmn_init(&myparser);
   r = jsmn_parse(&myparser, batch_json, strlen(batch_json), tokn, ll);
@@ -466,6 +470,8 @@ const char *sqlc_fj_run(sqlc_handle_t fj, const char *batch_json, int ll)
   if (tokn->type != JSMN_STRING) return "{\"message\": \"type error 7\"}";
 
   myfj->cleanup2 = rr = malloc(arlen = FIRST_ALLOC);
+  if (rr == NULL) goto batchmemoryerror;
+
   strcpy(rr, "[");
   rrlen = 1;
 
@@ -480,9 +486,9 @@ const char *sqlc_fj_run(sqlc_handle_t fj, const char *batch_json, int ll)
       // XXX FUTURE TBD keep buffer & free at the end
       int te = tokn->end;
       int tl = tokn->end-tokn->start;
-      //char * a = malloc(tl+10); // extra padding
-      char * a = malloc((tl<<3)+10); // extra padding
-      int ai = sj(batch_json+tokn->start, tl, a);
+      char * a = malloc(tl+100); // extra padding
+      int ai = (a == NULL) ? -1 : sj(batch_json+tokn->start, tl, a);
+      if (a == NULL) goto batchmemoryerror;
       rv = sqlite3_prepare_v2(mydb, a, ai, &s, NULL);
       free(a);
     }
@@ -544,9 +550,9 @@ const char *sqlc_fj_run(sqlc_handle_t fj, const char *batch_json, int ll)
           //sqlite3_bind_text(s, bi, batch_json+tokn->start, tokn->end-tokn->start, SQLITE_TRANSIENT);
           int te = tokn->end;
           int tl = tokn->end-tokn->start;
-          //char * a = malloc(tl+10); // extra padding
-          char * a = malloc((tl<<3)+10); // extra padding
-          int ai = sj(batch_json+tokn->start, tl, a);
+          char * a = malloc(tl+100); // extra padding
+          int ai = (a==NULL) ? -1 : sj(batch_json+tokn->start, tl, a);
+          if (a == NULL) goto batchmemoryerror1;
           sqlite3_bind_text(s, bi, a, ai, SQLITE_TRANSIENT);
           free(a);
         }
@@ -575,6 +581,7 @@ const char *sqlc_fj_run(sqlc_handle_t fj, const char *batch_json, int ll)
             if (rrlen + pplen + NEXT_ALLOC > arlen) {
               arlen += EXTRA_ALLOC + pplen + NEXT_ALLOC;
               myfj->cleanup2 = rr = realloc(rr, arlen);
+              if (rr == NULL) goto batchmemoryerror1;
             }
             strcpy(rr+rrlen, pptext);
             rrlen += pplen;
@@ -591,9 +598,11 @@ const char *sqlc_fj_run(sqlc_handle_t fj, const char *batch_json, int ll)
               //pplen = 0;
               //while(pptext[pplen] != 0) ++pplen;
 
-              if (rrlen + pplen + NEXT_ALLOC > arlen) {
-                arlen += EXTRA_ALLOC + pplen + NEXT_ALLOC;
+              // NOTE: add double pplen for JSON encoding
+              if (rrlen + pplen + pplen + NEXT_ALLOC > arlen) {
+                arlen += EXTRA_ALLOC + pplen + pplen + NEXT_ALLOC;
                 myfj->cleanup2 = rr = realloc(rr, arlen);
+                if (rr == NULL) goto batchmemoryerror1;
               }
 
               if (ct == SQLITE_INTEGER || ct == SQLITE_FLOAT) {
@@ -604,7 +613,7 @@ const char *sqlc_fj_run(sqlc_handle_t fj, const char *batch_json, int ll)
               } else {
                 int pi=0;
                 // XXX FUTURE TODO handle BLOB correctly
-                // XXX TODO CONVERT TO PROPER JSON !! !! !!
+                // XXX TBD CHECK PROPER JSON ??
                 strcpy(rr+rrlen, "\"");
                 rrlen += 1;
                 //strcpy(rr+rrlen, pptext);
@@ -707,10 +716,23 @@ const char *sqlc_fj_run(sqlc_handle_t fj, const char *batch_json, int ll)
     if (rrlen + 40 + NEXT_ALLOC > arlen) {
       arlen += EXTRA_ALLOC + 40 + NEXT_ALLOC;
       myfj->cleanup2 = rr = realloc(rr, arlen);
+      if (rr == NULL) goto batchmemoryerror;
     }
   }
 
   strcpy(rr+rrlen, "\"bogus\"]");
 
   return rr;
+
+batchmemoryerror1:
+  // FUTURE TODO what to do in case this returns an error
+  sqlite3_finalize(s);
+
+batchmemoryerror:
+  free(myfj->cleanup1);
+  myfj->cleanup1 = NULL;
+  free(myfj->cleanup2);
+  myfj->cleanup2 = NULL;
+
+  return "[\"batcherror\", \"memory error\", \"bogus\"]";
 }
